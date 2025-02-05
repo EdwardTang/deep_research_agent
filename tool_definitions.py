@@ -79,5 +79,72 @@ function_definitions = [
             },
             "required": ["command", "explanation"]
         }
+    },
+    {
+        "name": "visual_qa",
+        "description": "Answer questions about images using advanced vision models",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "image_path": {
+                    "type": "string",
+                    "description": "Path to the image file"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Question about the image"
+                }
+            },
+            "required": ["image_path"]
+        }
+    },
+    {
+        "name": "inspect_file_as_text",
+        "description": """
+Read a file as text and optionally answer questions about it.
+This tool handles various file types including PDF, DOCX, XLSX, HTML, and plain text.
+DO NOT use this tool for images - use visual_qa instead.""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to inspect"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Optional question about the file content",
+                    "nullable": True
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "reformulate_response",
+        "description": """
+Reformulate a conversation into a concise final answer.
+This tool helps standardize and optimize responses from other tools by extracting the key information and formatting it according to specific rules.""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "original_task": {
+                    "type": "string",
+                    "description": "The original question or task"
+                },
+                "conversation_messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {"type": "string"},
+                            "content": {"type": "string"}
+                        }
+                    },
+                    "description": "List of conversation messages to reformulate"
+                }
+            },
+            "required": ["original_task", "conversation_messages"]
+        }
     }
 ] 

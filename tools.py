@@ -1,6 +1,6 @@
 """
 Tool implementations for interactive chat system.
-Contains search, web scraping, file operations, and package management tools.
+Contains search, web scraping, file operations, package management tools, and text inspection.
 """
 
 import asyncio
@@ -11,10 +11,21 @@ import time
 from multiprocessing import Pool
 from typing import List, Optional, Union
 from urllib.parse import urlparse
+import base64
+import json
+import mimetypes
+from io import BytesIO
+import copy
 
 import aiohttp
 import html5lib
 from duckduckgo_search import DDGS
+from PIL import Image
+from huggingface_hub import InferenceClient
+import requests
+import openai
+
+from mdconvert import MarkdownConverter
 
 logger = logging.getLogger(__name__)
 
@@ -313,4 +324,230 @@ def execute_python(filename: str) -> str:
     except subprocess.CalledProcessError as e:
         return f"Error executing Python script: stdout={e.stdout}, stderr={e.stderr}"
     except Exception as e:
-        return f"Error executing Python script: {str(e)}" 
+        return f"Error executing Python script: {str(e)}"
+
+def visual_qa(image_path: str, question: Optional[str] = None) -> str:
+    """
+    Answer questions about images using advanced vision models.
+    
+    Args:
+        image_path: Path to the image file
+        question: Optional question about the image
+        
+    Returns:
+        Answer or description of the image
+    """
+    if not os.path.exists(image_path):
+        return f"Error: Image file not found at {image_path}"
+        
+    try:
+        # Encode image for API request
+        mime_type, _ = mimetypes.guess_type(image_path)
+        if not mime_type:
+            mime_type = "image/jpeg"
+            
+        with open(image_path, "rb") as image_file:
+            base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+            
+        if not question:
+            question = "Please write a detailed caption for this image."
+            
+        # Prepare API request
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}"
+        }
+        
+        payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": question},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{base64_image}"
+                            }
+                        },
+                    ]
+                }
+            ],
+            "max_tokens": 1000,
+        }
+        
+        # Make API request
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            return f"Error: API request failed with status {response.status_code}"
+            
+        result = response.json()
+        output = result["choices"][0]["message"]["content"]
+        
+        if not question:
+            output = f"You did not provide a particular question, so here is a detailed caption for the image: {output}"
+            
+        return output
+        
+    except Exception as e:
+        return f"Error processing image: {str(e)}"
+
+def inspect_file_as_text(file_path: str, question: Optional[str] = None) -> str:
+    """
+    Read a file as text and optionally answer questions about it.
+    
+    Args:
+        file_path: Path to the file to inspect
+        question: Optional question about the file content
+        
+    Returns:
+        File content or answer to the question
+    """
+    if not os.path.exists(file_path):
+        return f"Error: File not found at {file_path}"
+        
+    try:
+        # Initialize converter
+        converter = MarkdownConverter()
+        
+        # Convert file to text
+        result = converter.convert(file_path)
+        
+        if not question:
+            return result.text_content
+            
+        # If there's a question, use LLM to analyze
+        client = openai.OpenAI()
+        messages = [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "You will have to write a short caption for this file, then answer this question:"
+                        + question,
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Here is the complete file:\n### "
+                        + str(result.title)
+                        + "\n\n"
+                        + result.text_content[:100000],  # Limit text size
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Now answer the question below. Use these three headings: '1. Short answer', '2. Extremely detailed answer', '3. Additional Context on the document and question asked'."
+                        + question,
+                    }
+                ],
+            },
+        ]
+        
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=1000
+        )
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        return f"Error processing file: {str(e)}"
+
+def reformulate_response(original_task: str, conversation_messages: List[dict]) -> str:
+    """
+    Reformulate a conversation into a concise final answer.
+    
+    Args:
+        original_task: The original question or task
+        conversation_messages: List of conversation messages
+        
+    Returns:
+        Reformulated final answer
+    """
+    try:
+        # Initialize OpenAI client
+        client = openai.OpenAI()
+        
+        # Prepare messages for reformulation
+        messages = [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"""Earlier you were asked the following:
+
+{original_task}
+
+Your team then worked diligently to address that request. Read below a transcript of that conversation:""",
+                    }
+                ],
+            }
+        ]
+        
+        # Copy conversation messages
+        try:
+            for message in conversation_messages:
+                if not message.get("content"):
+                    continue
+                message = copy.deepcopy(message)
+                message["role"] = "user"  # All messages become user messages in reformulation
+                messages.append(message)
+        except Exception:
+            messages.append({"role": "user", "content": str(conversation_messages)})
+        
+        # Add final answer request
+        messages.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"""
+Read the above conversation and output a FINAL ANSWER to the question. The question is repeated here for convenience:
+
+{original_task}
+
+To output the final answer, use the following template: FINAL ANSWER: [YOUR FINAL ANSWER]
+Your FINAL ANSWER should be a number OR as few words as possible OR a comma separated list of numbers and/or strings.
+ADDITIONALLY, your FINAL ANSWER MUST adhere to any formatting instructions specified in the original question (e.g., alphabetization, sequencing, units, rounding, decimal places, etc.)
+If you are asked for a number, express it numerically (i.e., with digits rather than words), don't use commas, and DO NOT INCLUDE UNITS such as $ or USD or percent signs unless specified otherwise.
+If you are asked for a string, don't use articles or abbreviations (e.g. for cities), unless specified otherwise. Don't output any final sentence punctuation such as '.', '!', or '?'.
+If you are asked for a comma separated list, apply the above rules depending on whether the elements are numbers or strings.
+If you are unable to determine the final answer, output 'FINAL ANSWER: Unable to determine'
+""",
+                }
+            ],
+        })
+        
+        # Get reformulated response
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=1000
+        )
+        
+        # Extract final answer
+        final_answer = response.choices[0].message.content.split("FINAL ANSWER: ")[-1].strip()
+        logger.info(f"> Reformulated answer: {final_answer}")
+        
+        return final_answer
+        
+    except Exception as e:
+        return f"Error reformulating response: {str(e)}" 
