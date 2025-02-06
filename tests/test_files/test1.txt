@@ -1,3 +1,0 @@
-This is a test document.
-It contains multiple lines.
-Line three has some numbers: 123, 456.

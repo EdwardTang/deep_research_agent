@@ -146,5 +146,62 @@ This tool helps standardize and optimize responses from other tools by extractin
             },
             "required": ["original_task", "conversation_messages"]
         }
+    },
+    {
+        "name": "get_file_description",
+        "description": """
+Generate descriptions for various types of files including images, documents, and archives.
+This tool can handle multiple file types:
+- Images: png, jpg, jpeg
+- Documents: pdf, xls, xlsx, docx, doc, xml
+- Audio: mp3, m4a, wav
+- Archives: zip""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to describe"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Optional question to guide the description generation",
+                    "nullable": True
+                },
+                "extract_archives": {
+                    "type": "boolean",
+                    "description": "Whether to extract and process archive files",
+                    "default": True
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "generate_targeted_description",
+        "description": """
+Generate a targeted description of a file (image or document) that provides relevant details for answering a specific question.
+The description will focus on details that might be useful for answering the question, but will not answer the question directly.
+The description will be 5 sentences long and will only include information present in the file.""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to describe"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "The question that the description should help answer"
+                },
+                "description_type": {
+                    "type": "string",
+                    "description": "Type of description to generate",
+                    "enum": ["image", "document"],
+                    "default": "document"
+                }
+            },
+            "required": ["file_path", "question"]
+        }
     }
 ] 
